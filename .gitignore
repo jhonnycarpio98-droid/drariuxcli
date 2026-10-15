@@ -1,0 +1,8 @@
+# build artifacts
+drariux
+dist/
+*.tar.gz
+
+# local env / os
+.env
+.DS_Store
