@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/drariux/drariux-cli/internal/config"
 	"github.com/drariux/drariux-cli/internal/rpc"
@@ -19,33 +20,108 @@ import (
 // Version is injected at build time via -ldflags.
 var Version = "dev"
 
-var rootCmd = &cobra.Command{
-	Use:   "drariux",
-	Short: "Drariux blockchain CLI",
-	Long: `drariux — a lightweight client for the Drariux chain (EVM chain id 9854).
+const rootLong = `drariux — a lightweight client for the Drariux chain (EVM chain id 9854).
 
 Create local wallets, query the chain, and dry-run / publish transactions and
 smart contracts against an Ethermint node. Default RPC: node.drariux.network.
 
-Data lives in ~/.drariux (config.json + keystore/).`,
+Data lives in ~/.drariux (config.json + keystore/).`
+
+var rootCmd = &cobra.Command{
+	Use:           "drariux",
+	Short:         "Drariux blockchain CLI",
+	Long:          rootLong,
 	Version:       Version,
 	SilenceUsage:  true,
 	SilenceErrors: true,
+	Run: func(c *cobra.Command, args []string) {
+		// Bare `drariux`: greet with the wordmark, then show help.
+		PrintBanner()
+		fmt.Println()
+		_ = c.Help()
+	},
 }
 
 // Execute runs the command tree.
 func Execute() error {
+	// Rendered lazily so every flag is registered: `drariux help` then shows the
+	// exact syntax of every command instead of only their names.
+	rootCmd.Long = rootLong + "\n" + syntaxSheet(rootCmd)
 	return rootCmd.Execute()
 }
 
+// syntaxSheet walks the command tree and prints one line per runnable command.
+func syntaxSheet(root *cobra.Command) string {
+	var lines []string
+	flagSheet := func(c *cobra.Command) string {
+		var parts []string
+		c.LocalFlags().VisitAll(func(f *pflag.Flag) {
+			if f.Hidden {
+				return
+			}
+			s := "--" + f.Name
+			switch f.Value.Type() {
+			case "string":
+				s += " <" + strings.ToUpper(f.Name) + ">"
+			case "float64", "int64", "uint64", "int":
+				s += " <n>"
+			}
+			parts = append(parts, s)
+		})
+		return strings.Join(parts, " ")
+	}
+	var walk func(c *cobra.Command, path string)
+	walk = func(c *cobra.Command, path string) {
+		if c.Deprecated != "" || !c.IsAvailableCommand() {
+			return
+		}
+		sub := path
+		if c != root {
+			sub = path + " " + c.Name()
+		}
+		if c.Runnable() && c.Parent() != nil {
+			line := "  " + sub
+			if u := strings.TrimSpace(strings.TrimPrefix(c.Use, c.Name())); u != "" {
+				line += " " + u
+			}
+			if f := flagSheet(c); f != "" {
+				line += "  [" + f + "]"
+			}
+			if len(c.Aliases) > 0 {
+				line += "   · alias: " + strings.Join(c.Aliases, ", ")
+			}
+			lines = append(lines, line)
+		}
+		for _, s := range c.Commands() {
+			walk(s, sub)
+		}
+	}
+	for _, c := range root.Commands() {
+		if c.Name() == "help" || c.Name() == "completion" {
+			continue
+		}
+		walk(c, root.Name())
+	}
+	var b strings.Builder
+	b.WriteString("\nCOMMANDS · syntax\n")
+	for _, l := range lines {
+		b.WriteString(l + "\n")
+	}
+	b.WriteString("\n  drariux <command> --help   # full flag details\n")
+	return b.String()
+}
+
 func init() {
-	rootCmd.AddCommand(walletCmd, rpcCmd, chainCmd, txCmd, contractCmd, versionCmd)
+	rootCmd.AddCommand(walletCmd, rpcCmd, chainCmd, txCmd, contractCmd, nodeCmd, versionCmd)
 }
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "Print the CLI version",
-	Run:   func(c *cobra.Command, args []string) { fmt.Println("drariux " + Version) },
+	Short: "Print the DRARIUX wordmark and CLI version",
+	Run: func(c *cobra.Command, args []string) {
+		PrintBanner()
+		fmt.Printf("drariux %s\n", Version)
+	},
 }
 
 // ---- shared helpers used across subcommands ----

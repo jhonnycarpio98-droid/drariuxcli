@@ -137,8 +137,10 @@ var contractPublishCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("broadcast failed: %w", err)
 		}
-		fmt.Printf("\n✓ deploy tx: %s\n", hash)
-		fmt.Println("  check the contract address once the block is mined: drariux chain height")
+		box("Deploy ✓", [][2]string{
+			{"tx hash", hash},
+			{"next", "resolve address after mining: drariux chain height"},
+		})
 		return nil
 	},
 }

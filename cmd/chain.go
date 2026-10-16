@@ -19,25 +19,25 @@ var chainInfoCmd = &cobra.Command{
 	RunE: func(c *cobra.Command, args []string) error {
 		cfg := mustConfig()
 		client := clientFor(cfg)
-		fmt.Printf("endpoint : %s\n", cfg.RPC)
 
 		id, err := client.ChainID(ctx())
 		if err != nil {
 			return fmt.Errorf("cannot reach node: %w", err)
 		}
-		fmt.Printf("chain id : %s\n", id.String())
-
 		height, err := client.BlockNumber(ctx())
 		if err != nil {
 			return err
 		}
-		fmt.Printf("height   : %d\n", height)
-
 		gp, err := client.GasPrice(ctx())
 		if err != nil {
 			return err
 		}
-		fmt.Printf("gas price: %s wei (%s)\n", gp.String(), fmtDRX(gp))
+		box("Chain", [][2]string{
+			{"endpoint", cfg.RPC},
+			{"chain id", id.String()},
+			{"height", fmt.Sprintf("%d", height)},
+			{"gas price", fmt.Sprintf("%s wei (%s)", gp.String(), fmtDRX(gp))},
+		})
 		return nil
 	},
 }

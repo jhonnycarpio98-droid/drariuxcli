@@ -1,6 +1,7 @@
 package keyring
 
 import (
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,23 @@ func nowRFC() string { return time.Now().UTC().Format(time.RFC3339) }
 // Minimal BIP-0173 bech32 encoder (no external dependency).
 
 const bech32Charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+
+// bech32CharsetIdx maps a character back to its 5-bit value.
+var bech32CharsetIdx = func() [256]int8 {
+	var t [256]int8
+	for i := range t {
+		t[i] = -1
+	}
+	for i := 0; i < len(bech32Charset); i++ {
+		t[bech32Charset[i]] = int8(i)
+	}
+	return t
+}()
+
+func bech32VerifyChecksum(hrp string, data []byte) bool {
+	values := append(bech32HrpExpand(hrp), data...)
+	return bech32Polymod(values)^1 == 0
+}
 
 func bech32Polymod(values []byte) uint32 {
 	gen := []uint32{0x3b6a57b2, 0x18c1ea30, 0x237d3f46, 0x0e4a4c72, 0x3f8640b0}
@@ -72,6 +90,46 @@ func convertBits(data []byte, from, to uint32, pad bool) ([]byte, error) {
 		return nil, fmt.Errorf("invalid data padding")
 	}
 	return out, nil
+}
+
+// Bech32Decode splits a bech32 string into its hrp and 8-bit payload.
+func Bech32Decode(s string) (string, []byte, error) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	i := strings.LastIndex(s, "1")
+	if i < 1 || i+7 > len(s) {
+		return "", nil, fmt.Errorf("invalid bech32 string %q", s)
+	}
+	hrp, part := s[:i], s[i+1:]
+	data := make([]byte, 0, len(part))
+	for j := 0; j < len(part); j++ {
+		v := bech32CharsetIdx[part[j]]
+		if v < 0 {
+			return "", nil, fmt.Errorf("invalid bech32 character %q", string(part[j]))
+		}
+		data = append(data, byte(v))
+	}
+	if !bech32VerifyChecksum(hrp, data) {
+		return "", nil, fmt.Errorf("bech32 checksum mismatch for %q", s)
+	}
+	conv, err := convertBits(data[:len(data)-6], 5, 8, false)
+	if err != nil {
+		return "", nil, err
+	}
+	return hrp, conv, nil
+}
+
+// Bech32ToEVM maps any Drariux bech32 account address (drariux1…,
+// drariuxvaloper1…, drariuxvalcons1…) to its 0x EVM representation, since on
+// this chain the 20-byte payload is shared across all three forms.
+func Bech32ToEVM(addr string) (string, error) {
+	_, payload, err := Bech32Decode(addr)
+	if err != nil {
+		return "", err
+	}
+	if len(payload) != 20 {
+		return "", fmt.Errorf("expected a 20-byte address, got %d bytes", len(payload))
+	}
+	return toChecksum(hex.EncodeToString(payload)), nil
 }
 
 // Bech32Encode builds a bech32 string from an 8-bit payload.

@@ -6,3 +6,5 @@ dist/
 # local env / os
 .env
 .DS_Store
+drariux-cli
+/dist/

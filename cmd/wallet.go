@@ -3,8 +3,6 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
@@ -48,13 +46,11 @@ var walletNewCmd = &cobra.Command{
 			cfg.Account = w.Address
 			_ = config.Save(cfg)
 		}
-		fmt.Println("✓ Wallet created (0 DRX, unfunded)")
-		fmt.Printf("  name    : %s\n", w.Name)
-		fmt.Printf("  evm     : %s\n", w.Address)
-		fmt.Printf("  cosmos  : %s\n", w.CosmosAddr)
-		fmt.Println()
-		fmt.Println("  backup phrase (informational; the real secret is the keystore file):")
-		fmt.Printf("    %s\n", keyring.RandSeedPhrase())
+		box("Wallet created · 0 DRX (unfunded)", [][2]string{
+			{"name", w.Name},
+			{"evm", w.Address},
+			{"cosmos", w.CosmosAddr},
+		})
 		fmt.Println()
 		fmt.Println("  Stored at ~/.drariux/keystore/ — fund it to start transacting.")
 		return nil
@@ -75,16 +71,17 @@ var walletListCmd = &cobra.Command{
 			return nil
 		}
 		cfg := mustConfig()
-		tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-		fmt.Fprintln(tw, "NAME\tEVM ADDRESS\tCOSMOS ADDRESS\tDEFAULT")
+		header := []string{"NAME", "EVM ADDRESS", "COSMOS ADDRESS", "DEFAULT"}
+		var data [][]string
 		for _, w := range all {
 			def := ""
 			if w.Address == cfg.Account {
 				def = "*"
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", w.Name, w.Address, w.CosmosAddr, def)
+			data = append(data, []string{w.Name, w.Address, w.CosmosAddr, def})
 		}
-		return tw.Flush()
+		boxTable("Wallets", header, data)
+		return nil
 	},
 }
 
@@ -119,7 +116,7 @@ var walletShowCmd = &cobra.Command{
 		fmt.Printf("name   : %s\n", w.Name)
 		fmt.Printf("evm    : %s\n", w.Address)
 		fmt.Printf("cosmos : %s\n", w.CosmosAddr)
-		fmt.Printf("created: %s\n", w.CosmosAddr)
+		fmt.Printf("created: %s\n", w.Created)
 		return nil
 	},
 }
@@ -143,15 +140,17 @@ var walletBalanceCmd = &cobra.Command{
 			return fmt.Errorf("no address given and no default wallet")
 		}
 		client := clientFor(cfg)
-		fmt.Printf("RPC    : %s\n", cfg.RPC)
-		fmt.Printf("address: %s\n", addr)
 		bal, err := client.Balance(ctx(), addr)
 		if err != nil {
 			return fmt.Errorf("balance query failed: %w", err)
 		}
 		nonce, _ := client.Nonce(ctx(), addr)
-		fmt.Printf("balance: %s\n", fmtDRX(bal))
-		fmt.Printf("nonce  : %d\n", nonce)
+		box("Balance", [][2]string{
+			{"rpc", cfg.RPC},
+			{"address", addr},
+			{"balance", fmtDRX(bal)},
+			{"nonce", fmt.Sprintf("%d", nonce)},
+		})
 		return nil
 	},
 }

@@ -95,26 +95,28 @@ func simulate(cfg config.Config, p rpc.CallParams) (*SimResult, error) {
 }
 
 func printSim(title string, r *SimResult) {
-	fmt.Printf("── %s (dry-run) ──\n", title)
-	fmt.Printf("  gas estimate : %d\n", r.GasEstimate)
+	rows := [][2]string{{"status", "✓ would succeed"}}
+	if r.Reverted {
+		rows[0] = [2]string{"status", "✗ REVERTED"}
+	}
+	rows = append(rows, [2]string{"gas estimate", fmt.Sprintf("%d", r.GasEstimate)})
 	if r.GasPrice != nil && r.GasPrice.Sign() > 0 {
-		fmt.Printf("  gas price    : %s wei\n", r.GasPrice.String())
+		rows = append(rows, [2]string{"gas price", fmt.Sprintf("%s wei", r.GasPrice.String())})
 	}
 	if r.FeeDRX != "" {
-		fmt.Printf("  projected fee: %s\n", r.FeeDRX)
+		rows = append(rows, [2]string{"projected fee", r.FeeDRX})
 	}
 	if r.Reverted {
-		fmt.Printf("  status       : ✗ REVERTED\n")
-		fmt.Printf("  reason       : %s\n", r.Reason)
-	} else {
-		fmt.Printf("  status       : ✓ would succeed\n")
-		if r.ReturnData != "" && r.ReturnData != "0x" {
-			fmt.Printf("  return data  : %s\n", r.ReturnData)
-		}
+		rows = append(rows, [2]string{"reason", r.Reason})
+	} else if r.ReturnData != "" && r.ReturnData != "0x" && len(r.ReturnData) <= 160 {
+		// Only surface compact return values (e.g. a read call). A deploy returns
+		// the whole runtime bytecode, which is noise here — skip it.
+		rows = append(rows, [2]string{"return data", r.ReturnData})
 	}
 	for _, n := range r.Notes {
-		fmt.Printf("  note         : %s\n", n)
+		rows = append(rows, [2]string{"note", n})
 	}
+	box(title+" · dry-run", rows)
 }
 
 // decodeRevert turns a raw revert message / data into a readable string.

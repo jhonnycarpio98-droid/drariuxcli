@@ -1,4 +1,4 @@
-VERSION ?= v0.1.0
+VERSION ?= v0.5.4
 LDFLAGS := -s -w -X github.com/drariux/drariux-cli/cmd.Version=$(VERSION)
 
 .PHONY: build dist release clean

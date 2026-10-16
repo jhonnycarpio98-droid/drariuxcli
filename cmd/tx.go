@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/drariux/drariux-cli/internal/config"
 	"github.com/drariux/drariux-cli/internal/evmtypes"
 	"github.com/drariux/drariux-cli/internal/keyring"
 	"github.com/drariux/drariux-cli/internal/rpc"
@@ -84,7 +85,7 @@ var txSendCmd = &cobra.Command{
 	Use:   "send",
 	Short: "Sign and broadcast a transfer (use --dry-run to test first)",
 	Example: `  drariux tx send --to 0xAbC... --value 1 --dry-run
-  drariux tx send --from alice --to 0xAbC... --value 2`,
+  drariux tx send --from alice --to 0xAbC... --value 2 --yes`,
 	RunE: func(c *cobra.Command, args []string) error {
 		cfg := mustConfig()
 		from := resolveAccount(cfg, txFrom)
@@ -98,8 +99,6 @@ var txSendCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("sender %q must exist in keystore to sign: %w", from, err)
 		}
-		client := clientFor(cfg)
-
 		valueWei, err := parseAmountBig(txValue)
 		if err != nil {
 			return err
@@ -132,40 +131,67 @@ var txSendCmd = &cobra.Command{
 			return fmt.Errorf("refusing to broadcast without --yes (re-run with --yes to confirm)")
 		}
 
-		nonce, err := client.Nonce(ctx(), w.Address)
-		if err != nil {
-			return err
-		}
-		gasPrice, err := client.GasPrice(ctx())
-		if err != nil {
-			return err
-		}
-		gasLimit := res.GasEstimate
-		if txGas > 0 {
-			gasLimit = txGas
-		} else if gasLimit > 0 {
-			gasLimit = gasLimit + gasLimit/10 // headroom
-		}
-		tx := &evmtypes.Tx{
-			Nonce:    nonce,
-			GasPrice: gasPrice,
-			GasLimit: gasLimit,
-			To:       txTo,
-			Value:    valueWei,
-			Data:     dataBytes,
-			ChainID:  new(big.Int).SetInt64(int64(cfg.ChainID)),
-		}
-		raw, err := tx.Raw(w.PrivHex)
-		if err != nil {
-			return fmt.Errorf("signing failed: %w", err)
-		}
-		hash, err := client.SendRawTransaction(ctx(), raw)
-		if err != nil {
-			return fmt.Errorf("broadcast failed: %w", err)
-		}
-		fmt.Printf("\n✓ broadcast tx: %s\n", hash)
-		return nil
+		return signAndSend(cfg, w, txTo, valueWei, dataBytes, gasHint(res, txGas))
 	},
+}
+
+// gasHint applies an explicit --gas override, otherwise the simulation estimate
+// plus headroom.
+func gasHint(res *SimResult, override uint64) uint64 {
+	if override > 0 {
+		return override
+	}
+	if res != nil && res.GasEstimate > 0 {
+		return res.GasEstimate + res.GasEstimate/10
+	}
+	return 0
+}
+
+// signAndSend signs and broadcasts a value transfer with the given wallet.
+// Used only by `tx send`; the node never sends money programmatically.
+func signAndSend(cfg config.Config, w *keyring.Wallet, to string, valueWei *big.Int, data []byte, gas uint64) error {
+	client := clientFor(cfg)
+	nonce, err := client.Nonce(ctx(), w.Address)
+	if err != nil {
+		return err
+	}
+	gasPrice, err := client.GasPrice(ctx())
+	if err != nil {
+		return err
+	}
+	gasLimit := gas
+	if gasLimit == 0 {
+		if est, err := client.EstimateGas(ctx(), rpc.CallParams{
+			From: w.Address, To: to, Value: "0x" + valueWei.Text(16),
+		}); err == nil && est > 0 {
+			gasLimit = est + est/10
+		} else {
+			gasLimit = 21000
+		}
+	}
+	tx := &evmtypes.Tx{
+		Nonce:    nonce,
+		GasPrice: gasPrice,
+		GasLimit: gasLimit,
+		To:       to,
+		Value:    valueWei,
+		Data:     data,
+		ChainID:  new(big.Int).SetInt64(int64(cfg.ChainID)),
+	}
+	raw, err := tx.Raw(w.PrivHex)
+	if err != nil {
+		return fmt.Errorf("signing failed: %w", err)
+	}
+	hash, err := client.SendRawTransaction(ctx(), raw)
+	if err != nil {
+		return fmt.Errorf("broadcast failed: %w", err)
+	}
+	box("Broadcast ✓", [][2]string{
+		{"tx hash", hash},
+		{"to", to},
+		{"value", fmtDRX(valueWei)},
+	})
+	return nil
 }
 
 func parseAmountBig(s string) (*big.Int, error) {
